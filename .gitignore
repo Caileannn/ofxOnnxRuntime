@@ -1,3 +1,6 @@
+# Ignoring onnxruntime libs
+/libs/onnxruntime/lib/*
+
 example-*/config.make
 example-*/*.sln
 example-*/*.vcxproj

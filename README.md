@@ -1,4 +1,7 @@
 # ofxOnnxRuntime
+
+**Updated version, working with Windows 11, CUDA, and ONNXRuntime 1.20.1**
+
 [ONNX Runtime](https://github.com/microsoft/onnxruntime) tiny wrapper for openFrameworks
 
 !['test'](screenshot.png)
@@ -17,7 +20,7 @@
         - From `Browse` tab, search `Microsoft.ML.OnnxRuntime` (CPU) or `Microsoft.ML.OnnxRuntime.Gpu` (GPU) and install it.
     2. DLL direct download
         - You can download prebuilt DLLs from [here](https://github.com/microsoft/onnxruntime/releases).
-        - Unzip downloaded `onnxruntime-win-x64-(gpu-)1.10.0.zip` and locate files on `libs\onnxruntime\lib\vs\x64\` .
+        - Unzip downloaded `onnxruntime-win-x64-(gpu-)1.20.1.zip` and locate files on `libs\onnxruntime\lib\vs\x64\` .
         - Generate a project using ProjectGenerator, then all libs are linked correctly and all dlls are copied to `bin`.
 
 ## Tested environment

@@ -11,4 +11,6 @@ common:
 osx:
 	ADDON_LDFLAGS = -Xlinker -rpath -Xlinker @executable_path
 vs:
+	ADDON_INCLUDES = libs/onnxruntime/include
+	ADDON_INCLUDES += src
 
