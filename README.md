@@ -1,6 +1,8 @@
 # ofxOnnxRuntime
 
-**Updated version, working with Windows 11, CUDA, and ONNXRuntime 1.20.1**
+## **Updated version, working with Windows 11, CUDA 12.8, and ONNXRuntime 1.20.1**
+
+It is not the cleanest implementation, but it works!
 
 [ONNX Runtime](https://github.com/microsoft/onnxruntime) tiny wrapper for openFrameworks
 
