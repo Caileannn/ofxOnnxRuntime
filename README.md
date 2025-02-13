@@ -4,6 +4,8 @@
 
 It is not the cleanest implementation, but it works!
 
+In this implementation I have added the ability to batch process. This will only apply to models that allow it.
+
 [ONNX Runtime](https://github.com/microsoft/onnxruntime) tiny wrapper for openFrameworks
 
 !['test'](screenshot.png)

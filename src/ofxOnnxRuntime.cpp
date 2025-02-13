@@ -16,7 +16,7 @@ namespace ofxOnnxRuntime
 	}
 #endif
 
-	void BaseHandler::setup(const std::string & onnx_path, const BaseSetting & base_setting)
+	void BaseHandler::setup(const std::string & onnx_path, const BaseSetting & base_setting, const std::vector<int64_t>& batched_dims, const int & batch_size)
 	{
 		Ort::SessionOptions session_options;
 		session_options.SetIntraOpNumThreads(1);
@@ -31,6 +31,10 @@ namespace ofxOnnxRuntime
 			opts.arena_extend_strategy = 0;
 			session_options.AppendExecutionProvider_CUDA(opts);
 		}
+
+		// Sets batch size
+		this->batch_size = batch_size;
+		this->batched_dims = batched_dims;
 		this->setup2(onnx_path, session_options);
 	}
 
@@ -56,6 +60,18 @@ namespace ofxOnnxRuntime
 			std::cout << input_node_names.at(i) << " : " << PrintShape(input_node_dims) << std::endl;
 		}
 
+		// 2. Calculate the product of the dimensions
+		for (auto& f : batched_dims) {
+			input_node_size *= f;
+		}
+
+		// 3. Resize input values array to match input tensor/s
+		input_values_handler.resize(batch_size);
+
+		for (auto& tensor : input_values_handler) {
+			tensor.resize(input_node_size);
+		}
+
 		// 2. Clear up output values
 		output_node_dims.clear();
 		output_values.clear();
@@ -64,8 +80,6 @@ namespace ofxOnnxRuntime
 		for (std::size_t i = 0; i < ort_session->GetOutputCount(); i++) {
 			output_node_names.emplace_back(ort_session->GetOutputNameAllocated(i, allocator).get());
 			auto output_shapes = ort_session->GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
-
-			for (auto& s : output_shapes) if (s < 0) s = 1; 
 			
 			output_values.emplace_back(nullptr);
 
@@ -73,11 +87,23 @@ namespace ofxOnnxRuntime
 		}
 	}
 
-	Ort::Value& BaseHandler::run()
+	std::vector<Ort::Value>& BaseHandler::run()
 	{
 		std::vector<Ort::Value> input_tensors;
 
-		input_tensors.emplace_back(GenerateTensor());
+		// 1. Create 1-D array for all values to create tensor & push all values from input_vals to batch_vals
+		std::vector<float> batch_values(input_node_size * batch_size);
+
+		for (const auto& inner_vec : input_values_handler) {
+			for (float value : inner_vec) {
+				batch_values.push_back(value);
+			}
+		}
+
+		// 2. Create tensor with batch values { input data, input size, model input dims, model input size}
+		input_tensors.emplace_back(Ort::Value::CreateTensor<float>(
+			memory_info_handler, batch_values.data(), input_node_size,
+			input_node_dims.data(), input_node_dims.size()));
 
 		// transform std::string -> const char*
 		std::vector<const char*> input_names_char(input_node_names.size(), nullptr);
@@ -90,14 +116,17 @@ namespace ofxOnnxRuntime
 		
 
 		try {
-			output_values = ort_session->Run(Ort::RunOptions{ nullptr }, input_names_char.data(), input_tensors.data(),
-				input_names_char.size(), output_names_char.data(), output_names_char.size());
-			std::cout << "Success!" << std::endl;
-			return output_values.at(0);
+			// 3. Run inference, { in names, input data, num of inputs, output names, num of outputs }
+			output_values = ort_session->Run(Ort::RunOptions{ nullptr }, 
+				input_names_char.data(), input_tensors.data(),
+				input_names_char.size(), output_names_char.data(), 
+				output_names_char.size());
+
+			return output_values;
 		}
 		catch (const Ort::Exception& ex) {
 			std::cout << "ERROR running model inference: " << ex.what() << std::endl;
-			return dummy_output_tensor.at(0);
+			return dummy_output_tensor;
 		}
 		
 	}
@@ -110,10 +139,34 @@ namespace ofxOnnxRuntime
 		return ss.str();
 	}
 
-	Ort::Value BaseHandler::GenerateTensor() {
-		std::vector<float> random_input_tensor_values(CalculateProduct(input_node_dims));
-		std::generate(random_input_tensor_values.begin(), random_input_tensor_values.end(), [&] { return rand() % 255; });
-		return VectorToTensor(random_input_tensor_values, input_node_dims);
+	Ort::Value BaseHandler::GenerateTensor(int batch_size) {
+		// Random number generation setup
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_real_distribution<float> dis(0.0f, 255.0f); // Random values between 0 and 255
+
+		// Calculate the total number of elements for a single tensor (without batch dimension) {?, 8} -> 8
+		int tensor_size = CalculateProduct(input_node_dims);
+
+		// Create a vector to hold all the values for the batch (8 * (4)batch_size) -> 32
+		std::vector<float> batch_values(batch_size * tensor_size); 
+
+		// Fill the batch with random values
+		std::generate(batch_values.begin(), batch_values.end(), [&]() {
+			return dis(gen);
+		});
+
+		// Fill the batch with random values
+		std::generate(batch_values.begin(), batch_values.end(), [&]() {
+			return dis(gen);
+		});
+
+		// Create the batched dimensions by inserting the batch size at the beginning of the original dimensions
+		std::vector<int64_t> batched_dims = {  };  // Start with batch size
+		batched_dims.insert(batched_dims.end(), input_node_dims.begin(), input_node_dims.end()); // Add the remaining dimensions
+		batched_dims[0] = batch_size;
+
+		return VectorToTensor(batch_values, batched_dims);
 	}
 
 	int BaseHandler::CalculateProduct(const std::vector<std::int64_t>& v) {
@@ -123,8 +176,13 @@ namespace ofxOnnxRuntime
 	}
 
 	Ort::Value BaseHandler::VectorToTensor(std::vector<float>& data, const std::vector<std::int64_t>& shape) {
-		Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
-		auto tensor = Ort::Value::CreateTensor<float>(mem_info, data.data(), data.size(), shape.data(), shape.size());
+		//// Allocate memory using CPU memory allocator
+		//Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+
+		// Create a tensor from the provided data, shape, and memory info
+		auto tensor = Ort::Value::CreateTensor<float>(memory_info_handler, data.data(), data.size(), shape.data(), shape.size());
+
+		// Return the created tensor
 		return tensor;
 	}
 }
